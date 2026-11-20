@@ -1,14 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:aiapp/main.dart';
 
 void main() {
-  testWidgets('Home screen shows the three sections', (WidgetTester tester) async {
+  testWidgets('App opens on the sign in / sign up screen', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     await tester.pumpWidget(const MindSparkApp());
+    await tester.pumpAndSettle();
 
     expect(find.text('MindSpark AI'), findsWidgets);
-    expect(find.text('Chat'), findsOneWidget);
-    expect(find.text('Quiz'), findsOneWidget);
-    expect(find.text('Info of the Day'), findsOneWidget);
+    expect(find.text('Sign in'), findsWidgets);
+    expect(find.text('Sign up'), findsWidgets);
+    expect(find.text('Chat'), findsNothing);
   });
 }

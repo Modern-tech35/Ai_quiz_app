@@ -6,16 +6,37 @@ import 'package:http/http.dart' as http;
 
 import 'app_state.dart';
 import 'duo_widgets.dart';
+import 'neu_widgets.dart';
 
 /// Endpoint of the Cloudflare Worker proxy (same backend as the chat screen).
 /// The NVIDIA API key stays server-side inside the worker.
 const String kProxyUrl = 'https://mindspark-ai-proxy.adamed135.workers.dev';
 
-const String kDefaultModel = 'meta/llama-3.2-11b-vision-instruct';
+/// Model asked for explicitly: the deployed worker falls back to a retired
+/// model when the request does not name one.
+const String kDefaultModel = 'minimaxai/minimax-m3.1-flash';
 
 /// Quiz AI generation settings.
+///
+/// One five-question batch takes the model roughly 25–90 s, so asking for all
+/// ten questions at once is what used to blow past the proxy's cap. The quiz is
+/// therefore generated in two batches, both requested together, and play
+/// starts as soon as the first one lands: waiting for ten questions and then
+/// for a retry is what made the spinner look like it never stopped.
 const int kQuizQuestionCount = 10;
-const int kQuizMaxTokens = 4096;
+const int kQuizBatchCount = 2;
+const int kQuizBatchSize = kQuizQuestionCount ~/ kQuizBatchCount;
+
+/// Output budget per batch (five questions plus the model's reasoning tokens).
+const int kQuizMaxTokens = 2048;
+
+/// A batch that takes longer than this is abandoned rather than left spinning.
+const Duration kQuizRequestTimeout = Duration(seconds: 75);
+
+/// Only the upstream `503 content safety screening is temporarily unavailable`
+/// (and connection errors) are retried. A timeout means the model itself was
+/// too slow, so retrying would just double the wait.
+const int kQuizRequestAttempts = 2;
 
 enum QuizSubject { science, physics, math, geography }
 
@@ -33,6 +54,9 @@ extension QuizSubjectInfo on QuizSubject {
         QuizSubject.math => Icons.calculate_rounded,
         QuizSubject.geography => Icons.public_rounded,
       };
+
+  /// Picture used on the subject card and on the level screen.
+  String get imagePath => 'assets/images/subjects/$translationKey.jpg';
 
   List<Color> get colors => switch (this) {
         QuizSubject.science => const [Color(0xFF26A69A), Color(0xFF66BB6A)],
@@ -64,6 +88,17 @@ extension QuizDifficultyInfo on QuizDifficulty {
       };
 }
 
+/// Non-200 reply from the quiz proxy, carrying the HTTP status so callers can
+/// tell a transient [503] from a permanent failure.
+class QuizServerException implements Exception {
+  QuizServerException(this.statusCode);
+
+  final int statusCode;
+
+  @override
+  String toString() => 'Server error $statusCode';
+}
+
 class QuizQuestion {
   QuizQuestion({
     required this.question,
@@ -80,31 +115,16 @@ class QuizQuestion {
   bool isCorrect(int selectedIndex) => selectedIndex == correctIndex;
 }
 
-/// First screen: pick a subject and a difficulty, then start the quiz.
-class QuizSetupScreen extends StatefulWidget {
+/// First screen: pick a subject, which opens the level screen.
+class QuizSetupScreen extends StatelessWidget {
   const QuizSetupScreen({super.key, required this.appState});
 
   final AppState appState;
 
-  @override
-  State<QuizSetupScreen> createState() => _QuizSetupScreenState();
-}
-
-class _QuizSetupScreenState extends State<QuizSetupScreen> {
-  QuizSubject? _subject;
-  QuizDifficulty _difficulty = QuizDifficulty.easy;
-
-  AppState get appState => widget.appState;
-
-  void _startQuiz() {
-    if (_subject == null) return;
+  void _openLevels(BuildContext context, QuizSubject subject) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => QuizScreen(
-          appState: appState,
-          subject: _subject!,
-          difficulty: _difficulty,
-        ),
+        builder: (_) => QuizLevelScreen(appState: appState, subject: subject),
       ),
     );
   }
@@ -138,10 +158,66 @@ class _QuizSetupScreenState extends State<QuizSetupScreen> {
                   _QuizSubjectCard(
                     subject: subject,
                     label: appState.t(subject.translationKey),
-                    selected: _subject == subject,
-                    onTap: () => setState(() => _subject = subject),
+                    onTap: () => _openLevels(context, subject),
                   ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Second screen: choose the level for the picked subject, then start.
+class QuizLevelScreen extends StatefulWidget {
+  const QuizLevelScreen({
+    super.key,
+    required this.appState,
+    required this.subject,
+  });
+
+  final AppState appState;
+  final QuizSubject subject;
+
+  @override
+  State<QuizLevelScreen> createState() => _QuizLevelScreenState();
+}
+
+class _QuizLevelScreenState extends State<QuizLevelScreen> {
+  QuizDifficulty _difficulty = QuizDifficulty.easy;
+
+  AppState get appState => widget.appState;
+
+  void _startQuiz() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => QuizScreen(
+          appState: appState,
+          subject: widget.subject,
+          difficulty: _difficulty,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      appBar: AppBar(title: Text(appState.t(widget.subject.translationKey))),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: SizedBox(
+                height: 150,
+                width: double.infinity,
+                child: _SubjectPicture(subject: widget.subject),
+              ),
             ),
             const SizedBox(height: 24),
             Text(
@@ -171,9 +247,36 @@ class _QuizSetupScreenState extends State<QuizSetupScreen> {
             DuoButton(
               label: appState.t('startQuiz'),
               icon: Icons.play_arrow_rounded,
-              onPressed: _subject == null ? null : _startQuiz,
+              onPressed: _startQuiz,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The subject artwork, with a gradient fallback if the asset is missing.
+class _SubjectPicture extends StatelessWidget {
+  const _SubjectPicture({required this.subject});
+
+  final QuizSubject subject;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      subject.imagePath,
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: subject.colors,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Center(
+          child: Icon(subject.icon, color: Colors.white, size: 40),
         ),
       ),
     );
@@ -184,64 +287,74 @@ class _QuizSubjectCard extends StatelessWidget {
   const _QuizSubjectCard({
     required this.subject,
     required this.label,
-    required this.selected,
     required this.onTap,
   });
 
   final QuizSubject subject;
   final String label;
-  final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = selected
-        ? DuoColors.green
-        : (isDark ? DuoColors.darkSurfaceBorder : DuoColors.border);
-
     return GestureDetector(
       onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
+      child: Container(
         decoration: BoxDecoration(
-          color: selected
-              ? (isDark ? DuoColors.darkCorrectBg : DuoColors.greenLight)
-              : (isDark ? DuoColors.darkSurface : Colors.white),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: borderColor, width: 2),
-          boxShadow: [
-            BoxShadow(color: borderColor, offset: const Offset(0, 4)),
-          ],
+          color: Neu.base(context),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: Neu.raised(context, glow: subject.colors.first),
         ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 54,
-              height: 54,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: subject.colors,
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _SubjectPicture(subject: subject),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0x00000000),
+                      Color(0x33000000),
+                      Color(0xB3000000),
+                    ],
+                    stops: [0.45, 0.7, 1],
+                  ),
                 ),
-                shape: BoxShape.circle,
               ),
-              child: Icon(subject.icon, color: Colors.white, size: 26),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              label,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 15,
-                color: selected
-                    ? DuoColors.greenText
-                    : (isDark ? const Color(0xFFF1EFEA) : DuoColors.text),
+              Positioned(
+                left: 12,
+                right: 8,
+                bottom: 8,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          shadows: [
+                            Shadow(color: Color(0x80000000), blurRadius: 6),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Colors.white,
+                      size: 22,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -264,20 +377,16 @@ class _QuizDifficultyChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = selected
-        ? DuoColors.blueBorder
-        : (isDark ? DuoColors.darkSurfaceBorder : DuoColors.border);
 
     return Container(
       decoration: BoxDecoration(
         color: selected
             ? (isDark ? DuoColors.darkSelectedBg : DuoColors.blueLight)
-            : (isDark ? DuoColors.darkSurface : Colors.white),
+            : Neu.base(context),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: borderColor, width: 2),
-        boxShadow: [
-          BoxShadow(color: borderColor, offset: const Offset(0, 4)),
-        ],
+        boxShadow: selected
+            ? Neu.raised(context, glow: DuoColors.blue)
+            : Neu.raised(context),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(14),
@@ -349,6 +458,15 @@ class _QuizScreenState extends State<QuizScreen> {
   int? _selectedIndex;
   int _score = 0;
 
+  /// Live counter shown while generating: the model needs a minute or more, so
+  /// a ticking number makes it clear the screen is still working.
+  Timer? _elapsedTimer;
+  int _elapsedSeconds = 0;
+
+  /// Identifies the current generation so a late batch from an abandoned run
+  /// (the player already pressed "Try again") cannot reopen the quiz.
+  int _generation = 0;
+
   AppState get appState => widget.appState;
 
   @override
@@ -357,7 +475,23 @@ class _QuizScreenState extends State<QuizScreen> {
     _generateQuestions();
   }
 
+  @override
+  void dispose() {
+    _elapsedTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startElapsedTimer() {
+    _elapsedTimer?.cancel();
+    _elapsedSeconds = 0;
+    _elapsedTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _elapsedSeconds++);
+    });
+  }
+
   Future<void> _generateQuestions() async {
+    final generation = ++_generation;
+    _startElapsedTimer();
     setState(() {
       _phase = _QuizPhase.loading;
       _questions = null;
@@ -367,18 +501,24 @@ class _QuizScreenState extends State<QuizScreen> {
     });
 
     try {
-      final questions = await generateQuiz(
+      await generateQuiz(
         subject: widget.subject,
         difficulty: widget.difficulty,
         uiLanguageCode: appState.languageCode,
+        onQuestions: (questions) {
+          _elapsedTimer?.cancel();
+          if (!mounted || generation != _generation) return;
+          // The quiz is over, so a batch arriving late must not reopen it.
+          if (_phase == _QuizPhase.done) return;
+          setState(() {
+            _questions = questions;
+            _phase = _QuizPhase.playing;
+          });
+        },
       );
-      if (!mounted) return;
-      setState(() {
-        _questions = questions;
-        _phase = _QuizPhase.playing;
-      });
     } catch (_) {
-      if (!mounted) return;
+      _elapsedTimer?.cancel();
+      if (!mounted || generation != _generation) return;
       setState(() => _phase = _QuizPhase.error);
     }
   }
@@ -460,6 +600,15 @@ class _QuizScreenState extends State<QuizScreen> {
                   ),
             ),
           ),
+          if (_elapsedSeconds >= 10) ...[
+            const SizedBox(height: 12),
+            Text(
+              '${_elapsedSeconds}s',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+            ),
+          ],
         ],
       ),
     );
@@ -600,7 +749,6 @@ class _QuizScreenState extends State<QuizScreen> {
   Widget _buildResults(ColorScheme colorScheme) {
     final total = _questions!.length;
     final ratio = _score / total;
-    final isDarkResult = Theme.of(context).brightness == Brightness.dark;
 
     return Center(
       child: SingleChildScrollView(
@@ -620,14 +768,12 @@ class _QuizScreenState extends State<QuizScreen> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: ratio >= 0.5
-                        ? DuoColors.greenText
-                        : DuoColors.redText,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
+                boxShadow: Neu.raised(
+                  context,
+                  glow: ratio >= 0.5
+                      ? DuoColors.green
+                      : DuoColors.red,
+                ),
               ),
               child: Center(
                 child: Text(
@@ -670,9 +816,7 @@ class _QuizScreenState extends State<QuizScreen> {
             DuoButton(
               label: appState.t('newQuiz'),
               icon: Icons.arrow_back_rounded,
-              color: isDarkResult ? DuoColors.darkSurface : Colors.white,
-              textColor:
-                  isDarkResult ? DuoColors.blue : DuoColors.blueText,
+              color: DuoColors.blue,
               onPressed: () => Navigator.of(context).pop(),
             ),
           ],
@@ -683,10 +827,15 @@ class _QuizScreenState extends State<QuizScreen> {
 }
 
 /// Asks the AI (via the Cloudflare Worker proxy) to generate quiz questions.
-Future<List<QuizQuestion>> generateQuiz({
+///
+/// [onQuestions] is called as soon as the first playable batch has arrived and
+/// again whenever another batch lands, so the quiz screen can start playing
+/// while the rest is still being generated.
+Future<void> generateQuiz({
   required QuizSubject subject,
   required QuizDifficulty difficulty,
   required String uiLanguageCode,
+  required ValueChanged<List<QuizQuestion>> onQuestions,
 }) async {
   final languageName = switch (uiLanguageCode) {
     'ar' => 'Arabic',
@@ -694,8 +843,74 @@ Future<List<QuizQuestion>> generateQuiz({
     _ => 'English',
   };
 
+  final questions = <QuizQuestion>[];
+  final seen = <String>{};
+  Object? lastError;
+
+  // A batch that fails is skipped instead of aborting the quiz: one full batch
+  // still makes a playable quiz.
+  Future<List<QuizQuestion>> safeBatch(int batchIndex) async {
+    try {
+      return await _requestQuizBatch(
+        subject: subject,
+        difficulty: difficulty,
+        languageName: languageName,
+        batchIndex: batchIndex,
+        count: kQuizBatchSize,
+      );
+    } catch (error) {
+      lastError = error;
+      debugPrint('Quiz batch $batchIndex failed: $error');
+      return const <QuizQuestion>[];
+    }
+  }
+
+  // Both batches are requested together and reported as each one lands, so the
+  // player starts on the first playable batch instead of waiting for the
+  // slower one. That is what previously kept the screen spinning for minutes.
+  await for (final batch in Stream.fromFutures([
+    for (var i = 0; i < kQuizBatchCount; i++) safeBatch(i),
+  ])) {
+    final added = <QuizQuestion>[];
+    for (final question in batch) {
+      final key = question.question
+          .toLowerCase()
+          .replaceAll(RegExp(r'[^a-z0-9\u0600-\u06FF]+'), ' ')
+          .trim();
+      if (seen.add(key)) {
+        questions.add(question);
+        added.add(question);
+      }
+    }
+    if (added.isNotEmpty) {
+      debugPrint('QUIZ READY with ${questions.length} questions');
+      onQuestions(List<QuizQuestion>.unmodifiable(questions));
+    }
+  }
+
+  if (questions.length < kQuizBatchSize) {
+    throw Exception('Quiz generation failed: $lastError');
+  }
+}
+
+/// Requests [kQuizBatchSize] questions from the model, retrying a transient
+/// failure once.
+Future<List<QuizQuestion>> _requestQuizBatch({
+  required QuizSubject subject,
+  required QuizDifficulty difficulty,
+  required String languageName,
+  required int batchIndex,
+  required int count,
+}) async {
+  // Pushes the two batches towards different material so the merged quiz is
+  // less likely to contain near-duplicate questions.
+  final batchHint = batchIndex == 0
+      ? '- Prefer questions about key concepts, definitions and how things work.\n'
+      : '- Prefer questions about real-world examples, comparisons and '
+          'why something happens.\n';
+
   final prompt =
-      'Create exactly $kQuizQuestionCount multiple-choice quiz questions about '
+      'Create exactly $count multiple-choice quiz questions about '
       '${subject.name} at ${difficulty.labelEn} difficulty level, suitable for '
       'students aged 10 to 15. '
       'Write every question and every answer option in $languageName.\n'
@@ -709,54 +924,72 @@ Future<List<QuizQuestion>> generateQuiz({
       '(no US states, Canadian provinces, local money, local sports or '
       'local brands). World capitals, planets and universal facts are fine.\n'
       '- Optionally add a short one-sentence "explanation" for the correct answer.\n'
+      '$batchHint'
       'Return ONLY valid JSON with no markdown, no code fences and no commentary, '
       'as a JSON array of objects, each shaped like: '
       '{"question": "...", "options": ["...", "...", "...", "..."], '
       '"correct_index": 0, "explanation": "..."} '
       'where correct_index is the 0-based index of the correct option in "options".';
 
-  final response = await http
-      .post(
-        Uri.parse(kProxyUrl),
-        body: jsonEncode({
-          'model': kDefaultModel,
-          'max_tokens': kQuizMaxTokens,
-          'temperature': 0.7,
-          'messages': [
-            {
-              'role': 'system',
-              'content':
-                  'You are an expert quiz creator writing for children aged 10–15 '
-                      'worldwide. You reply ONLY with valid JSON. '
-                      'You never add explanations, markdown or any text outside the JSON.\n'
-                      'Every question must use simple, age-appropriate vocabulary and '
-                      'must be answerable by children anywhere in the world, without '
-                      'relying on any single country’s curriculum or local examples.',
-            },
-            {'role': 'user', 'content': prompt},
-          ],
-        }),
-        headers: const {'Content-Type': 'application/json'},
-      )
-      .timeout(const Duration(minutes: 3));
+  Object? lastError;
+  for (var attempt = 1; attempt <= kQuizRequestAttempts; attempt++) {
+    try {
+      final response = await http
+          .post(
+            Uri.parse(kProxyUrl),
+            body: jsonEncode({
+              'model': kDefaultModel,
+              'max_tokens': kQuizMaxTokens,
+              'temperature': 0.7,
+              'messages': [
+                {
+                  'role': 'system',
+                  'content':
+                      'You are an expert quiz creator writing for children aged 10–15 '
+                          'worldwide. You reply ONLY with valid JSON. '
+                          'You never add explanations, markdown or any text outside the JSON.\n'
+                          'Every question must use simple, age-appropriate vocabulary and '
+                          'must be answerable by children anywhere in the world, without '
+                          'relying on any single country’s curriculum or local examples.',
+                },
+                {'role': 'user', 'content': prompt},
+              ],
+            }),
+            headers: const {'Content-Type': 'application/json'},
+          )
+          .timeout(kQuizRequestTimeout);
 
-  if (response.statusCode != 200) {
-    throw Exception('Server error ${response.statusCode}');
+      if (response.statusCode != 200) {
+        throw QuizServerException(response.statusCode);
+      }
+
+      final data =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final choices = data['choices'] as List<dynamic>?;
+      final content = choices?[0]?['message']?['content'] as String?;
+      if (content == null || content.isEmpty) {
+        throw Exception('Empty response from AI');
+      }
+
+      return parseQuizQuestions(content, minQuestions: count);
+    } catch (error) {
+      lastError = error;
+      final transient = error is QuizServerException
+          ? error.statusCode == 503
+          : error is! FormatException && error is! TimeoutException;
+      if (!transient || attempt >= kQuizRequestAttempts) break;
+      await Future.delayed(const Duration(seconds: 2));
+    }
   }
 
-  final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-  final choices = data['choices'] as List<dynamic>?;
-  final content = choices?[0]?['message']?['content'] as String?;
-  if (content == null || content.isEmpty) {
-    throw Exception('Empty response from AI');
-  }
-
-  return parseQuizQuestions(content);
+  throw Exception('Quiz batch failed: $lastError');
 }
-
 /// Parses the model reply into [QuizQuestion]s, tolerating code fences and
 /// slightly different key names.
-List<QuizQuestion> parseQuizQuestions(String raw) {
+List<QuizQuestion> parseQuizQuestions(
+  String raw, {
+  int minQuestions = kQuizQuestionCount - 2,
+}) {
   var text = raw.trim();
 
   // Strip markdown code fences if the model added them.
@@ -770,7 +1003,8 @@ List<QuizQuestion> parseQuizQuestions(String raw) {
     final objectEnd = text.lastIndexOf('}');
     final decodedObject = _tryDecode(text.substring(objectStart, objectEnd + 1));
     if (decodedObject is Map) {
-      final questions = _parseQuestionList(decodedObject['questions']);
+      final questions =
+          _parseQuestionList(decodedObject['questions'], minQuestions);
       if (questions.isNotEmpty) return questions;
     }
   }
@@ -778,7 +1012,7 @@ List<QuizQuestion> parseQuizQuestions(String raw) {
     final end = text.lastIndexOf(']');
     final decodedArray = _tryDecode(text.substring(start, end + 1));
     if (decodedArray is List) {
-      final questions = _parseQuestionList(decodedArray);
+      final questions = _parseQuestionList(decodedArray, minQuestions);
       if (questions.isNotEmpty) return questions;
     }
   }
@@ -794,7 +1028,7 @@ dynamic _tryDecode(String text) {
   }
 }
 
-List<QuizQuestion> _parseQuestionList(dynamic list) {
+List<QuizQuestion> _parseQuestionList(dynamic list, int minQuestions) {
   if (list is! List) return const [];
 
   final questions = <QuizQuestion>[];
@@ -825,7 +1059,7 @@ List<QuizQuestion> _parseQuestionList(dynamic list) {
   }
   // Require most of the questions to be valid so a broken generation fails
   // loudly instead of showing a nearly empty quiz.
-  if (questions.length < kQuizQuestionCount - 2) {
+  if (questions.length < minQuestions) {
     throw const FormatException('Not enough valid questions in AI response');
   }
   return questions;

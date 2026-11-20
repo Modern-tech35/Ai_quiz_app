@@ -2,5 +2,11 @@ name = "mindspark-ai-proxy"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 
+# Non-secret settings. The API key is NOT here — it is a Worker secret
+# (see README.md): `npx wrangler secret put API_KEY`.
+[vars]
+BASE_URL = "https://integrate.api.nvidia.com/v1"
+MODEL = "minimaxai/minimax-m3.1-flash"
+
 [observability]
 enabled = true

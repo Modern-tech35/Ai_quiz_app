@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "590550754019",
+    "project_id": "fir-paid",
+    "storage_bucket": "fir-paid.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:590550754019:android:33d6072224606d818edbd6",
+        "android_client_info": {
+          "package_name": "com.moderntech.aiapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "590550754019-ni4qudnnpmg0ecearefo75l4biubmkc1.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.moderntech.aiapp",
+            "certificate_hash": "2f3ccfbcdbe17fbbd0517fba276e99da4f78b02d"
+          }
+        },
+        {
+          "client_id": "590550754019-0rr6r6hd773tm5jqk55tiee1qlt2pcmp.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCDU1an_cFNVpn9-nqTIu7kfRZcvxLp-88"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "590550754019-0rr6r6hd773tm5jqk55tiee1qlt2pcmp.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

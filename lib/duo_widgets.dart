@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'neu_widgets.dart';
+
 /// Duolingo-flavored colors and reusable widgets.
 ///
 /// Kept lightweight (no packages, no images): the signature look comes from
@@ -73,50 +75,12 @@ class DuoButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final enabled = onPressed != null;
-
-    final bgColor = enabled ? color : DuoColors.disabledBg;
-    final fgColor = enabled
-        ? textColor
-        : (isDark ? const Color(0xFFAFAFAF) : DuoColors.disabledText);
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onPressed,
-          child: Container(
-            height: minHeight,
-            alignment: Alignment.center,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (icon != null) ...[
-                  Icon(icon, color: fgColor, size: 22),
-                  const SizedBox(width: 8),
-                ],
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: fgColor,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+    return NeuButton(
+      label: label,
+      onPressed: onPressed,
+      accent: color,
+      icon: icon,
+      minHeight: minHeight,
     );
   }
 }
@@ -163,13 +127,21 @@ class DuoProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: LinearProgressIndicator(
-        value: value.clamp(0.0, 1.0),
-        minHeight: 14,
-        backgroundColor: DuoColors.border,
-        valueColor: const AlwaysStoppedAnimation<Color>(DuoColors.green),
+    final progress = value.clamp(0.0, 1.0);
+    return NeuSurface(
+      pressed: true,
+      radius: 9,
+      height: 18,
+      alignment: Alignment.centerLeft,
+      child: FractionallySizedBox(
+        widthFactor: progress,
+        heightFactor: 1,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: DuoColors.green,
+            borderRadius: BorderRadius.circular(9),
+          ),
+        ),
       ),
     );
   }
@@ -233,37 +205,24 @@ class DuoOptionTile extends StatelessWidget {
         break;
     }
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: border, width: 2),
-        boxShadow: [
-          BoxShadow(color: border, offset: const Offset(0, 4)),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: state == DuoOptionState.muted ? null : onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 18,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: fg,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                height: 1.3,
-              ),
-            ),
-          ),
+    final selected =
+        state != DuoOptionState.normal && state != DuoOptionState.muted;
+
+    return NeuTappable(
+      onTap: state == DuoOptionState.muted ? null : onTap,
+      radius: 16,
+      pressed: selected,
+      color: bg,
+      glow: selected ? border : null,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      child: Text(
+        label,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: fg,
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+          height: 1.3,
         ),
       ),
     );
@@ -293,15 +252,12 @@ class DuoFeedbackBanner extends StatelessWidget {
     final bg = correct ? DuoColors.greenLight : DuoColors.redLight;
     final accent = correct ? DuoColors.greenText : DuoColors.redText;
 
-    return Container(
+    return NeuSurface(
       width: double.infinity,
+      radius: 22,
+      color: bg,
+      glow: accent,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(20),
-        ),
-      ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,

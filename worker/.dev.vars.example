@@ -1,0 +1,4 @@
+# Copy to `.dev.vars` and fill in real values for `npx wrangler dev`.
+BASE_URL=https://integrate.api.nvidia.com/v1
+MODEL=minimaxai/minimax-m3.1-flash
+API_KEY=nvapi-your-key-here

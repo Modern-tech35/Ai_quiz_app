@@ -49,3 +49,15 @@ app.*.map.json
 
 # Cloudflare Wrangler local cache (contains account info)
 .wrangler/
+
+# Wrangler local secrets (.dev.vars holds the API key)
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Local debugging artifacts: Chrome probe profile, temp scripts, screenshots
+.chrome-probe/
+.tmp_*
+cdp_*.js
+probe_fetch.html
+tmp_*.png

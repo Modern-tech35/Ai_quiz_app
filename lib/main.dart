@@ -1,14 +1,30 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'app_drawer.dart';
 import 'app_state.dart';
+import 'auth_screen.dart';
+import 'auth_service.dart';
 import 'chat_screen.dart';
-import 'duo_widgets.dart';
+import 'firebase_config.dart';
 import 'info_screen.dart';
+import 'neu_widgets.dart';
 import 'quiz_screen.dart';
 import 'translations.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: const FirebaseOptions(
+      apiKey: FirebaseConfig.apiKey,
+      authDomain: FirebaseConfig.authDomain,
+      projectId: FirebaseConfig.projectId,
+      storageBucket: FirebaseConfig.storageBucket,
+      messagingSenderId: FirebaseConfig.messagingSenderId,
+      appId: FirebaseConfig.appId,
+    ),
+  );
   runApp(const MindSparkApp());
 }
 
@@ -16,18 +32,16 @@ void main() {
 final ThemeData kSparkLightTheme = _buildSparkTheme(Brightness.light);
 final ThemeData kSparkDarkTheme = _buildSparkTheme(Brightness.dark);
 
-/// Kid-friendly "Spark" theme (target ages 10–15) — inspired by a reference
-/// screenshot in `images/`.
+/// Kid-friendly "Spark" theme (target ages 10–15) in a neumorphic style.
 ///
-/// Palette extracted from the reference image: near-black charcoal surfaces,
-/// golden-orange primary (≈#FEB03C), pink secondary (≈#FE6C8F) and light-blue
-/// tertiary (≈#6F9EFD), with a subtle teal cast on dark backgrounds.
-///
-/// Kept deliberately lightweight for performance: hand-picked colors, no
-/// custom fonts, no images, no extra packages and no runtime animation-heavy
-/// decorations. Chunky rounded buttons keep the playful learning-app feel.
+/// Brand accents are unchanged (golden-orange ≈#FEB03C, pink ≈#FE6C8F,
+/// light-blue ≈#6F9EFD), but every surface is now the same flat tone per theme
+/// and depth comes only from the soft double shadows in `neu_widgets.dart`.
+/// Borders and Material elevation are deliberately absent — outlines and hard
+/// shadows are what break the soft-UI look.
 ThemeData _buildSparkTheme(Brightness brightness) {
   final isLight = brightness == Brightness.light;
+  final base = isLight ? NeuColors.lightBase : NeuColors.darkBase;
 
   final colorScheme = ColorScheme.fromSeed(
     seedColor: const Color(0xFFFEB03C),
@@ -36,34 +50,44 @@ ThemeData _buildSparkTheme(Brightness brightness) {
     primary: const Color(0xFFFEB03C),
     onPrimary: const Color(0xFF241A00),
     primaryContainer:
-        isLight ? const Color(0xFFFFE8C7) : const Color(0xFF573C00),
+        isLight ? const Color(0xFFFFE8C7) : const Color(0xFF57410F),
     onPrimaryContainer:
         isLight ? const Color(0xFF7A3C00) : const Color(0xFFFFDFA6),
     secondary: const Color(0xFFFE6C8F),
     onSecondary: const Color(0xFF3B091A),
     secondaryContainer:
-        isLight ? const Color(0xFFFFE2EA) : const Color(0xFF5C1030),
+        isLight ? const Color(0xFFFFE2EA) : const Color(0xFF5C2436),
     onSecondaryContainer:
         isLight ? const Color(0xFF8E0F3C) : const Color(0xFFFFD9E1),
     tertiary: const Color(0xFF6F9EFD),
     onTertiary: const Color(0xFF0D2547),
     tertiaryContainer:
-        isLight ? const Color(0xFFD9E5FF) : const Color(0xFF1E3F73),
+        isLight ? const Color(0xFFDDE7FA) : const Color(0xFF243B5E),
     onTertiaryContainer:
         isLight ? const Color(0xFF0F3D80) : const Color(0xFFD9E5FF),
-    surface: isLight ? const Color(0xFFFFFBF9) : const Color(0xFF14171A),
-    onSurface: isLight ? const Color(0xFF201A14) : const Color(0xFFECE7DF),
+    surface: base,
+    onSurface: isLight ? const Color(0xFF2C3037) : const Color(0xFFDEE5EE),
     onSurfaceVariant:
-        isLight ? const Color(0xFF514A40) : const Color(0xFFABA396),
-    surfaceContainerHighest:
-        isLight ? const Color(0xFFF1EBE4) : const Color(0xFF1E2226),
+        isLight ? const Color(0xFF6B7280) : const Color(0xFF9BA6B4),
+    surfaceContainerHighest: base,
+    surfaceContainerHigh: base,
+    surfaceContainer: base,
+    surfaceContainerLow: base,
+    surfaceContainerLowest: base,
+    outline: isLight ? const Color(0xFFCBD4E1) : const Color(0xFF39414B),
+    outlineVariant: isLight ? const Color(0xFFDCE3ED) : const Color(0xFF2C333C),
+    errorContainer: isLight ? const Color(0xFFFBDDE1) : const Color(0xFF3B1F26),
+    onErrorContainer:
+        isLight ? const Color(0xFF7A1B2C) : const Color(0xFFFFD5DC),
   );
 
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
-    scaffoldBackgroundColor:
-        isLight ? const Color(0xFFFFFBF9) : const Color(0xFF0B0E10),
+    // Screens are see-through so the app-wide photo in `AppBackground` shows.
+    scaffoldBackgroundColor: Colors.transparent,
+    canvasColor: base,
+    splashFactory: NoSplash.splashFactory,
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.transparent,
       elevation: 0,
@@ -72,10 +96,18 @@ ThemeData _buildSparkTheme(Brightness brightness) {
     ),
     cardTheme: CardThemeData(
       elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
-      ),
+      color: base,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+    ),
+    dialogTheme: DialogThemeData(
+      backgroundColor: base,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+    ),
+    popupMenuTheme: PopupMenuThemeData(
+      color: base,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
@@ -84,7 +116,7 @@ ThemeData _buildSparkTheme(Brightness brightness) {
     ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     ),
   );
 }
@@ -98,9 +130,17 @@ class MindSparkApp extends StatefulWidget {
 
 class _MindSparkAppState extends State<MindSparkApp> {
   final AppState _appState = AppState();
+  final AuthService _authService = AuthService();
+
+  @override
+  void initState() {
+    super.initState();
+    _authService.attach();
+  }
 
   @override
   void dispose() {
+    _authService.dispose();
     _appState.dispose();
     super.dispose();
   }
@@ -123,24 +163,53 @@ class _MindSparkAppState extends State<MindSparkApp> {
           theme: kSparkLightTheme,
           darkTheme: kSparkDarkTheme,
           themeMode: _appState.themeMode,
-          home: HomeScreen(appState: _appState),
+          builder: (context, child) =>
+              AppBackground(child: child ?? const SizedBox.shrink()),
+          home: AuthGate(appState: _appState, auth: _authService),
         );
       },
     );
   }
 }
 
-/// Home screen: simple header + section cards.
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, required this.appState});
+/// The app's entry screen: shows the home screen when Firebase reports a
+/// signed-in user, otherwise the combined sign-in/sign-up screen.
+class AuthGate extends StatelessWidget {
+  const AuthGate({super.key, required this.appState, required this.auth});
 
   final AppState appState;
+  final AuthService auth;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: auth,
+      builder: (context, _) {
+        if (auth.signedIn) return HomeScreen(appState: appState, auth: auth);
+        return AuthScreen(appState: appState, auth: auth);
+      },
+    );
+  }
+}
+
+/// Home screen: a header + one extruded picture card per section
+/// (Chat, Quiz, Info).
+///
+/// Each card shows a picture from `assets/images/` in a rounded banner with its
+/// title and subtitle underneath. Pictures are optional: a card whose file
+/// isn't there yet shows a tinted gradient with its icon instead.
+class HomeScreen extends StatelessWidget {
+  const HomeScreen({super.key, required this.appState, required this.auth});
+
+  final AppState appState;
+  final AuthService auth;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
+      drawer: AppDrawer(appState: appState, auth: auth),
       body: SafeArea(
         child: Column(
           children: [
@@ -148,7 +217,15 @@ class HomeScreen extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
               child: Row(
                 children: [
-                  _buildLanguageMenu(theme),
+                  // Opens the settings drawer (language + theme).
+                  Builder(
+                    builder: (context) => NeuIconButton(
+                      icon: Icons.menu_rounded,
+                      tooltip: MaterialLocalizations.of(context)
+                          .openAppDrawerTooltip,
+                      onPressed: () => Scaffold.of(context).openDrawer(),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -184,26 +261,30 @@ class HomeScreen extends StatelessWidget {
                       icon: Icons.chat_bubble_rounded,
                       color: theme.colorScheme.secondary,
                       label: appState.t('chat'),
+                      subtitle: appState.t('chatSubtitle'),
+                      imagePath: 'assets/images/chat.jpg',
                       onTap: () => _openChat(context),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
                     _buildSectionCard(
                       theme: theme,
                       icon: Icons.quiz_rounded,
                       color: theme.colorScheme.primary,
                       label: appState.t('quiz'),
+                      subtitle: appState.t('quizSubtitle'),
+                      imagePath: 'assets/images/quiz.jpg',
                       onTap: () => _openQuiz(context),
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 18),
                     _buildSectionCard(
                       theme: theme,
                       icon: Icons.lightbulb_rounded,
                       color: theme.colorScheme.tertiary,
                       label: appState.t('infoOfDay'),
+                      subtitle: appState.t('infoSubtitle'),
+                      imagePath: 'assets/images/info.jpg',
                       onTap: () => _openInfo(context),
                     ),
-                    const SizedBox(height: 28),
-                    _buildThemeToggle(theme),
                     const SizedBox(height: 16),
                   ],
                 ),
@@ -235,108 +316,151 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// Plain Material card for a home-screen section.
+  /// Extruded picture card for a home-screen section: a picture banner on top,
+  /// then the icon, title, subtitle and arrow underneath.
   Widget _buildSectionCard({
     required ThemeData theme,
     required IconData icon,
     required Color color,
     required String label,
+    required String subtitle,
+    required String imagePath,
     required VoidCallback onTap,
   }) {
-    return Card(
-      margin: EdgeInsets.zero,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
+    final isDark = theme.brightness == Brightness.dark;
+
+    return NeuTappable(
+      onTap: onTap,
+      radius: 26,
+      glow: color,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 140,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _SectionPicture(
+                  imagePath: imagePath,
+                  icon: icon,
+                  color: color,
                 ),
-                child: Icon(icon, color: color, size: 26),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                // Fades the picture into the card body so both read as one shape.
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        color.withValues(alpha: 0),
+                        color.withValues(alpha: isDark ? 0.28 : 0.14),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Language selector showing a flag; opens a menu with all flags.
-  Widget _buildLanguageMenu(ThemeData theme) {
-    return PopupMenuButton<String>(
-      tooltip: appState.t('language'),
-      onSelected: (code) => appState.setLocale(code),
-      initialValue: appState.languageCode,
-      itemBuilder: (context) => [
-        for (final lang in supportedLanguages)
-          PopupMenuItem(
-            value: lang.code,
-            child: Row(
-              children: [
-                Text(lang.flag, style: const TextStyle(fontSize: 20)),
-                const SizedBox(width: 10),
-                Text(lang.name),
-                if (lang.code == appState.languageCode) ...[
-                  const Spacer(),
-                  Icon(Icons.check, size: 18, color: theme.colorScheme.primary),
-                ],
               ],
             ),
           ),
-      ],
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: DuoColors.border),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              appState.currentLanguage.flag,
-              style: const TextStyle(fontSize: 18),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+            child: Row(
+              children: [
+                NeuSurface(
+                  pressed: true,
+                  radius: 21,
+                  width: 42,
+                  height: 42,
+                  alignment: Alignment.center,
+                  child: Icon(icon, color: color, size: 23),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                NeuSurface(
+                  pressed: true,
+                  radius: 17,
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  child: Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 17,
+                    color: color,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(width: 4),
-            Icon(Icons.arrow_drop_down, color: theme.colorScheme.onSurfaceVariant),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  /// Light/dark theme toggle button.
-  Widget _buildThemeToggle(ThemeData theme) {
-    final isDark = theme.brightness == Brightness.dark;
-    return Center(
-      child: FilledButton.tonalIcon(
-        icon: Icon(isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded),
-        label: Text(appState.t('darkMode')),
-        onPressed: () => appState.setThemeMode(
-          isDark ? ThemeMode.light : ThemeMode.dark,
+}
+
+/// The picture at the top of a home card, filling its banner.
+///
+/// When the picture file isn't bundled yet (the default until real artwork is
+/// added to `assets/images/`) it renders a tinted gradient with the section
+/// icon, so the card still looks finished.
+class _SectionPicture extends StatelessWidget {
+  const _SectionPicture({
+    required this.imagePath,
+    required this.icon,
+    required this.color,
+  });
+
+  final String imagePath;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      imagePath,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              color.withValues(alpha: 0.32),
+              color.withValues(alpha: 0.10),
+            ],
+          ),
+        ),
+        child: Center(
+          child: Icon(
+            icon,
+            size: 52,
+            color: color.withValues(alpha: 0.85),
+          ),
         ),
       ),
     );

@@ -7,15 +7,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_state.dart';
 import 'duo_widgets.dart';
+import 'neu_widgets.dart';
 
 /// Endpoint of the Cloudflare Worker proxy (same backend as chat & quiz).
 /// The NVIDIA API key stays server-side inside the worker.
 const String kProxyUrl = 'https://mindspark-ai-proxy.adamed135.workers.dev';
 
-const String kDefaultModel = 'meta/llama-3.2-11b-vision-instruct';
+/// Model asked for explicitly: the deployed worker falls back to a retired
+/// model when the request does not name one.
+const String kDefaultModel = 'minimaxai/minimax-m3.1-flash';
 
 /// AI generation settings for the daily info fact.
-const int kInfoMaxTokens = 512;
+const int kInfoMaxTokens = 1024;
 
 /// Subjects a daily fact can come from — the same classes allowed in chat.
 enum InfoSubject { science, physics, math, geography, history }
@@ -296,14 +299,12 @@ class _InfoOfTheDayScreenState extends State<InfoOfTheDayScreen> {
 
   Widget _buildFactCard(InfoFact fact, bool isDark) {
     final subjectColor = fact.subject.colors.first;
-    final borderColor = isDark ? DuoColors.darkSurfaceBorder : DuoColors.border;
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: isDark ? DuoColors.darkSurface : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor, width: 2),
-        boxShadow: [BoxShadow(color: borderColor, offset: const Offset(0, 4))],
+        color: Neu.base(context),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: Neu.raised(context, glow: subjectColor),
       ),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -381,9 +382,6 @@ class _InfoSubjectChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor = selected
-        ? DuoColors.blueBorder
-        : (isDark ? DuoColors.darkSurfaceBorder : DuoColors.border);
 
     return GestureDetector(
       onTap: onTap,
@@ -392,10 +390,11 @@ class _InfoSubjectChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected
               ? (isDark ? DuoColors.darkSelectedBg : DuoColors.blueLight)
-              : (isDark ? DuoColors.darkSurface : Colors.white),
+              : Neu.base(context),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: borderColor, width: 2),
-          boxShadow: [BoxShadow(color: borderColor, offset: const Offset(0, 4))],
+          boxShadow: selected
+              ? Neu.raised(context, glow: DuoColors.blue)
+              : Neu.raised(context),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -471,7 +470,7 @@ Future<InfoFact> fetchDailyInfo({
         }),
         headers: const {'Content-Type': 'application/json'},
       )
-      .timeout(const Duration(minutes: 2));
+      .timeout(const Duration(seconds: 90));
 
   if (response.statusCode != 200) {
     throw Exception('Server error ${response.statusCode}');

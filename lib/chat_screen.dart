@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -5,12 +6,15 @@ import 'package:http/http.dart' as http;
 
 import 'app_state.dart';
 import 'chat_database.dart';
+import 'neu_widgets.dart';
 
 /// Endpoint of the Cloudflare Worker proxy.
 /// The NVIDIA API key stays server-side inside the worker.
 const String kProxyUrl = 'https://mindspark-ai-proxy.adamed135.workers.dev';
 
-const String kDefaultModel = 'meta/llama-3.2-11b-vision-instruct';
+/// Model asked for explicitly: the deployed worker falls back to a retired
+/// model when the request does not name one.
+const String kDefaultModel = 'minimaxai/minimax-m3.1-flash';
 
 /// Substrings that indicate an AI reply is about one of the allowed school
 /// subjects (Math, Science, Physics, Geography, History) in the app's UI
@@ -179,7 +183,11 @@ class _ChatScreenState extends State<ChatScreen> {
     } catch (e) {
       setState(() {
         _messages.add(ChatMessage(
-          text: '${appState.t('errorPrefix')}: $e',
+          text: e is TimeoutException
+              ? appState.t('aiTimeout')
+              : e is http.ClientException
+                  ? appState.t('noInternet')
+                  : '${appState.t('errorPrefix')}: $e',
           isUser: false,
           isError: true,
         ));
@@ -219,7 +227,7 @@ class _ChatScreenState extends State<ChatScreen> {
       Uri.parse(kProxyUrl),
       body: jsonEncode({'model': kDefaultModel, 'messages': history}),
       headers: const {'Content-Type': 'application/json'},
-    );
+    ).timeout(const Duration(seconds: 90));
 
     if (response.statusCode != 200) {
       throw Exception('Server error ${response.statusCode}');
@@ -385,40 +393,41 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Widget _buildMessageBubble(ChatMessage message, ColorScheme colorScheme) {
+    final dark = Neu.isDark(context);
+    final accent = message.isError
+        ? colorScheme.error
+        : message.isUser
+            ? colorScheme.primary
+            : null;
+
+    final textColor = message.isError
+        ? colorScheme.onErrorContainer
+        : message.isUser
+            ? (dark
+                ? Color.alphaBlend(
+                    colorScheme.primary.withValues(alpha: 0.45), Colors.white)
+                : Color.alphaBlend(
+                    Colors.black.withValues(alpha: 0.45), colorScheme.primary))
+            : colorScheme.onSurface;
+
     return Align(
       alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 6),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.78,
         ),
-        decoration: BoxDecoration(
-          color: message.isError
-              ? colorScheme.errorContainer
-              : message.isUser
-                  ? colorScheme.primary
-                  : colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: message.isUser
-                ? const Radius.circular(18)
-                : const Radius.circular(4),
-            bottomRight: message.isUser
-                ? const Radius.circular(4)
-                : const Radius.circular(18),
-          ),
-        ),
-        child: SelectableText(
-          message.text,
-          style: TextStyle(
-            color: message.isError
-                ? colorScheme.onErrorContainer
-                : message.isUser
-                    ? colorScheme.onPrimary
-                    : colorScheme.onSurface,
-            height: 1.4,
+        child: NeuSurface(
+          margin: const EdgeInsets.symmetric(vertical: 7),
+          padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 13),
+          radius: 20,
+          pressed: message.isUser,
+          color: accent == null
+              ? Neu.base(context)
+              : Color.alphaBlend(accent.withValues(alpha: 0.16), Neu.base(context)),
+          glow: accent,
+          child: SelectableText(
+            message.text,
+            style: TextStyle(color: textColor, height: 1.45),
           ),
         ),
       ),
@@ -428,13 +437,10 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget _buildTypingIndicator(ColorScheme colorScheme) {
     return Align(
       alignment: Alignment.centerLeft,
-      child: Container(
+      child: NeuSurface(
         margin: const EdgeInsets.symmetric(vertical: 6),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(18),
-        ),
+        radius: 18,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -456,47 +462,48 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Widget _buildInputBar(ColorScheme colorScheme) {
     return SafeArea(
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-        decoration: BoxDecoration(
-          color: colorScheme.surface,
-          border: Border(
-            top: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
-          ),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 6, 14, 10),
         child: Row(
           children: [
             Expanded(
-              child: TextField(
-                controller: _inputController,
-                textInputAction: TextInputAction.send,
-                onSubmitted: (_) => _sendMessage(),
-                decoration: InputDecoration(
-                  hintText: appState.t('askAnything'),
-                  filled: true,
-                  fillColor: colorScheme.surfaceContainerHigh,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(24),
-                    borderSide: BorderSide.none,
+              child: NeuSurface(
+                pressed: true,
+                radius: 24,
+                child: TextField(
+                  controller: _inputController,
+                  textInputAction: TextInputAction.send,
+                  onSubmitted: (_) => _sendMessage(),
+                  decoration: InputDecoration(
+                    hintText: appState.t('askAnything'),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 15,
+                    ),
                   ),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            IconButton.filled(
+            const SizedBox(width: 14),
+            NeuIconButton(
+              size: 52,
+              accent: colorScheme.primary,
               onPressed: _isLoading ? null : _sendMessage,
-              icon: _isLoading
+              icon: Icons.send_rounded,
+              child: _isLoading
                   ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: colorScheme.onPrimary,
+                        color: Color.alphaBlend(
+                          Colors.black.withValues(alpha: 0.42),
+                          colorScheme.primary,
+                        ),
                       ),
                     )
-                  : const Icon(Icons.send_rounded),
+                  : null,
             ),
           ],
         ),
