@@ -9,12 +9,9 @@ import 'duo_widgets.dart';
 import 'neu_widgets.dart';
 
 /// Endpoint of the Cloudflare Worker proxy (same backend as the chat screen).
-/// The NVIDIA API key stays server-side inside the worker.
+/// The OpenRouter API key stays server-side inside the worker, and the worker
+/// owns the model chain (primary + fallbacks), so the app never carries either.
 const String kProxyUrl = 'https://mindspark-ai-proxy.adamed135.workers.dev';
-
-/// Model asked for explicitly: the deployed worker falls back to a retired
-/// model when the request does not name one.
-const String kDefaultModel = 'minimaxai/minimax-m3.1-flash';
 
 /// Quiz AI generation settings.
 ///
@@ -150,9 +147,9 @@ class QuizSetupScreen extends StatelessWidget {
               crossAxisCount: 2,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.15,
+              mainAxisSpacing: 14,
+              crossAxisSpacing: 14,
+              childAspectRatio: 0.92,
               children: [
                 for (final subject in QuizSubject.values)
                   _QuizSubjectCard(
@@ -337,7 +334,7 @@ class _QuizSubjectCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 15,
+                          fontSize: 17,
                           fontWeight: FontWeight.w800,
                           shadows: [
                             Shadow(color: Color(0x80000000), blurRadius: 6),
@@ -348,7 +345,7 @@ class _QuizSubjectCard extends StatelessWidget {
                     const Icon(
                       Icons.chevron_right_rounded,
                       color: Colors.white,
-                      size: 22,
+                      size: 24,
                     ),
                   ],
                 ),
@@ -938,7 +935,6 @@ Future<List<QuizQuestion>> _requestQuizBatch({
           .post(
             Uri.parse(kProxyUrl),
             body: jsonEncode({
-              'model': kDefaultModel,
               'max_tokens': kQuizMaxTokens,
               'temperature': 0.7,
               'messages': [
@@ -974,8 +970,10 @@ Future<List<QuizQuestion>> _requestQuizBatch({
       return parseQuizQuestions(content, minQuestions: count);
     } catch (error) {
       lastError = error;
+      // 429 is the free model's shared upstream pool being saturated, which is
+      // as temporary as a 503, so it gets the same single retry.
       final transient = error is QuizServerException
-          ? error.statusCode == 503
+          ? error.statusCode == 503 || error.statusCode == 429
           : error is! FormatException && error is! TimeoutException;
       if (!transient || attempt >= kQuizRequestAttempts) break;
       await Future.delayed(const Duration(seconds: 2));

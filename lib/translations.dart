@@ -15,6 +15,7 @@ const Map<String, Map<String, String>> appTranslations = {
     'chatTitle': 'MindSpark Chat',
     'recentChats': 'Recent chats',
     'newChat': 'New chat',
+    'back': 'Back',
     'noRecentChats': 'No recent chats yet',
     'askAnything': 'Ask anything…',
     'chatGreeting':
@@ -96,6 +97,7 @@ const Map<String, Map<String, String>> appTranslations = {
     'chatTitle': 'دردشة مايند سبارك',
     'recentChats': 'المحادثات الأخيرة',
     'newChat': 'محادثة جديدة',
+    'back': 'رجوع',
     'noRecentChats': 'لا توجد محادثات بعد',
     'askAnything': 'اسأل أي شيء…',
     'chatGreeting':
@@ -176,6 +178,7 @@ const Map<String, Map<String, String>> appTranslations = {
     'chatTitle': 'Discussion MindSpark',
     'recentChats': 'Discussions récentes',
     'newChat': 'Nouvelle discussion',
+    'back': 'Retour',
     'noRecentChats': 'Aucune discussion récente',
     'askAnything': 'Posez votre question…',
     'chatGreeting':

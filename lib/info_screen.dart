@@ -10,12 +10,9 @@ import 'duo_widgets.dart';
 import 'neu_widgets.dart';
 
 /// Endpoint of the Cloudflare Worker proxy (same backend as chat & quiz).
-/// The NVIDIA API key stays server-side inside the worker.
+/// The OpenRouter API key stays server-side inside the worker, and the worker
+/// owns the model chain (primary + fallbacks), so the app never carries either.
 const String kProxyUrl = 'https://mindspark-ai-proxy.adamed135.workers.dev';
-
-/// Model asked for explicitly: the deployed worker falls back to a retired
-/// model when the request does not name one.
-const String kDefaultModel = 'minimaxai/minimax-m3.1-flash';
 
 /// AI generation settings for the daily info fact.
 const int kInfoMaxTokens = 1024;
@@ -454,7 +451,6 @@ Future<InfoFact> fetchDailyInfo({
       .post(
         Uri.parse(kProxyUrl),
         body: jsonEncode({
-          'model': kDefaultModel,
           'max_tokens': kInfoMaxTokens,
           'temperature': 0.9,
           'messages': [

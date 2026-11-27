@@ -9,12 +9,9 @@ import 'chat_database.dart';
 import 'neu_widgets.dart';
 
 /// Endpoint of the Cloudflare Worker proxy.
-/// The NVIDIA API key stays server-side inside the worker.
+/// The OpenRouter API key stays server-side inside the worker, and the worker
+/// owns the model chain (primary + fallbacks), so the app never carries either.
 const String kProxyUrl = 'https://mindspark-ai-proxy.adamed135.workers.dev';
-
-/// Model asked for explicitly: the deployed worker falls back to a retired
-/// model when the request does not name one.
-const String kDefaultModel = 'minimaxai/minimax-m3.1-flash';
 
 /// Substrings that indicate an AI reply is about one of the allowed school
 /// subjects (Math, Science, Physics, Geography, History) in the app's UI
@@ -225,7 +222,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
     final response = await http.post(
       Uri.parse(kProxyUrl),
-      body: jsonEncode({'model': kDefaultModel, 'messages': history}),
+      body: jsonEncode({'messages': history}),
       headers: const {'Content-Type': 'application/json'},
     ).timeout(const Duration(seconds: 90));
 
@@ -267,9 +264,9 @@ class _ChatScreenState extends State<ChatScreen> {
       drawer: _buildRecentChatsDrawer(context),
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.menu_rounded),
-          tooltip: appState.t('recentChats'),
-          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          icon: const Icon(Icons.arrow_back_rounded),
+          tooltip: appState.t('back'),
+          onPressed: () => Navigator.of(context).maybePop(),
         ),
         title: Row(
           children: [
@@ -279,6 +276,11 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            tooltip: appState.t('recentChats'),
+            icon: const Icon(Icons.history_rounded),
+            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+          ),
           IconButton(
             tooltip: appState.t('newChat'),
             icon: const Icon(Icons.add_comment_rounded),
